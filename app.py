@@ -34,7 +34,7 @@ def init_db():
                 uid TEXT PRIMARY KEY,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 original_image TEXT,
-                predicted_image TEXT,
+                predicted_image TEXT
             )
         """)
         
