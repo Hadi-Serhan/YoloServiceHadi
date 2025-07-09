@@ -149,6 +149,10 @@ def get_predictions_by_label(label: str):
     """
     Get prediction sessions containing objects with specified label
     """
+    
+    if label not in model.names.values():
+        raise HTTPException(status_code=404, detail="Label not supported")
+    
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
@@ -165,6 +169,9 @@ def get_predictions_by_score(min_score: float):
     """
     Get prediction sessions containing objects with score >= min_score
     """
+    if not (min_score >= 0 and min_score <= 1):
+        raise HTTPException(status_code=400, detail="Score must be between 0 and 1")
+    
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
