@@ -202,7 +202,7 @@ def get_image(type: str, filename: str):
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(path)
 
-@app.get("/prediction/counter")
+@app.get("/predictions/count")
 def get_prediction_counter():
     """
     Get total number of predictions within the past week

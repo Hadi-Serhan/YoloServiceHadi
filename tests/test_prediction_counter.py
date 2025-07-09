@@ -25,7 +25,7 @@ class TestPredictionCounter(unittest.TestCase):
 
     def test_prediction_counter_empty(self):
         """Should return 0 when there are no predictions"""
-        response = self.client.get("/prediction/counter")
+        response = self.client.get("/predictions/count")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 0)
 
@@ -40,6 +40,6 @@ class TestPredictionCounter(unittest.TestCase):
         self.insert_prediction(now - timedelta(days=8))
         self.insert_prediction(now - timedelta(days=30))
 
-        response = self.client.get("/prediction/counter")
+        response = self.client.get("/predictions/count")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 3)
