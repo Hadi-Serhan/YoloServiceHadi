@@ -36,13 +36,13 @@ class TestPredictionCountEndpoint(unittest.TestCase):
         self.insert_prediction(now - timedelta(days=30))  # should not count
 
         # Call the endpoint
-        response = client.get("/prediction/count")
+        response = client.get("/prediction/counter")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 3)
 
     def test_prediction_count_empty(self):
         # No data
-        response = client.get("/prediction/count")
+        response = client.get("/prediction/counter")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 0)
 
