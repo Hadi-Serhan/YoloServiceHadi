@@ -7,6 +7,7 @@ import sqlite3
 import os
 import uuid
 import shutil
+from datetime import datetime, timedelta
 
 # Disable GPU usage
 import torch
@@ -201,6 +202,19 @@ def get_image(type: str, filename: str):
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(path)
 
+@app.get("/prediction/counter")
+def get_prediction_counter():
+    """
+    Get total number of predictions within the past week
+    """
+    one_week_ago = datetime.now() - timedelta(days=7)
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT COUNT(*) as count FROM prediction_sessions WHERE timestamp >= ?",
+                           (one_week_ago.isoformat(),)).fetchone()
+    return {"count": row["count"]}
+    
+    
 @app.get("/prediction/{uid}/image")
 def get_prediction_image(uid: str, request: Request):
     """
