@@ -1,3 +1,4 @@
+import time
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from ultralytics import YOLO
@@ -32,7 +33,7 @@ def init_db():
                 uid TEXT PRIMARY KEY,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 original_image TEXT,
-                predicted_image TEXT
+                predicted_image TEXT,
             )
         """)
         
@@ -80,6 +81,8 @@ def predict(file: UploadFile = File(...)):
     """
     Predict objects in an image
     """
+    start_time = time.time()
+    
     ext = os.path.splitext(file.filename)[1]
     uid = str(uuid.uuid4())
     original_path = os.path.join(UPLOAD_DIR, uid + ext)
@@ -105,10 +108,13 @@ def predict(file: UploadFile = File(...)):
         save_detection_object(uid, label, score, bbox)
         detected_labels.append(label)
 
+    processing_time = round(time.time() - start_time, 2)
+
     return {
         "prediction_uid": uid, 
         "detection_count": len(results[0].boxes),
-        "labels": detected_labels
+        "labels": detected_labels,
+        "time_took": processing_time,
     }
 
 @app.get("/prediction/{uid}")
