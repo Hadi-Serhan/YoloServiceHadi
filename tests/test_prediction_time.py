@@ -18,6 +18,7 @@ class TestProcessingTime(unittest.TestCase):
     def test_predict_includes_processing_time(self):
         """Test that the predict endpoint returns processing time"""
         
+        
         response = self.client.post(
             "/predict",
             files={"file": ("test.jpg", self.image_bytes, "image/jpeg")}
