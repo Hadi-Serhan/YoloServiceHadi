@@ -33,7 +33,7 @@ def init_db():
                 uid TEXT PRIMARY KEY,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 original_image TEXT,
-                predicted_image TEXT
+                predicted_image TEXT,
             )
         """)
         
@@ -114,7 +114,7 @@ def predict(file: UploadFile = File(...)):
         "prediction_uid": uid, 
         "detection_count": len(results[0].boxes),
         "labels": detected_labels,
-        "time took": processing_time,
+        "time_took": processing_time,
     }
 
 @app.get("/prediction/{uid}")
