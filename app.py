@@ -8,6 +8,7 @@ import os
 import uuid
 import shutil
 from datetime import datetime, timedelta
+from collections import Counter
 
 # Disable GPU usage
 import torch
@@ -289,6 +290,49 @@ def delete_prediction(uid: str):
 
     return {"detail": f"Prediction {uid} deleted successfully."}
 
+@app.get("/stats")
+def get_stats():
+    """
+    Get overall statistics and analytics about predictions in the last 7 days.
+    """
+    one_week_ago = datetime.now() - timedelta(days=7)
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+
+        # Get total number of predictions
+        total_predictions_row = conn.execute("""
+            SELECT COUNT(*) as count
+            FROM prediction_sessions
+            WHERE timestamp >= ?
+        """, (one_week_ago.isoformat(),)).fetchone()
+        total_predictions = total_predictions_row["count"]
+
+        # Get all detection objects for those predictions
+        rows = conn.execute("""
+            SELECT label, score
+            FROM detection_objects
+            WHERE prediction_uid IN (
+                SELECT uid FROM prediction_sessions
+                WHERE timestamp >= ?
+            )
+        """, (one_week_ago.isoformat(),)).fetchall()
+
+    scores = [row["score"] for row in rows]
+    labels = [row["label"] for row in rows]
+
+    # Compute average confidence score
+    avg_confidence = round(sum(scores) / len(scores), 4) if scores else 0.0
+
+    # Count most common labels
+    label_counts = Counter(labels)
+
+    return {
+        "total_predictions": total_predictions,
+        "average_confidence_score": avg_confidence,
+        "most_common_labels": dict(label_counts)
+    }
+    
 
 @app.get("/health")
 def health():
