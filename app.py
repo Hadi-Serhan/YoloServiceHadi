@@ -214,6 +214,26 @@ def get_prediction_counter():
                            (one_week_ago.isoformat(),)).fetchone()
     return {"count": row["count"]}
     
+@app.get("/labels")
+def get_recent_labels():
+    """
+    Get all unique labels detected in the last 7 days.
+    """
+    one_week_ago = datetime.now() - timedelta(days=7)
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT DISTINCT label
+            FROM detection_objects
+            WHERE prediction_uid IN (
+                SELECT uid FROM prediction_sessions
+                WHERE timestamp >= ?
+            )
+        """, (one_week_ago.isoformat(),)).fetchall()
+
+    return {"labels": [row["label"] for row in rows]}
+
     
 @app.get("/prediction/{uid}/image")
 def get_prediction_image(uid: str, request: Request):
