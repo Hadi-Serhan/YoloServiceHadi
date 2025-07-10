@@ -258,6 +258,38 @@ def get_prediction_image(uid: str, request: Request):
         # If the client doesn't accept image, respond with 406 Not Acceptable
         raise HTTPException(status_code=406, detail="Client does not accept an image format")
 
+
+@app.delete("/prediction/{uid}")
+def delete_prediction(uid: str):
+    """
+    Delete a specific prediction and its related image files and detection objects.
+    """
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+
+        # Fetch the prediction row
+        prediction = conn.execute("SELECT * FROM prediction_sessions WHERE uid = ?", (uid,)).fetchone()
+        if not prediction:
+            raise HTTPException(status_code=404, detail="Prediction not found")
+
+        # Delete related detection objects
+        conn.execute("DELETE FROM detection_objects WHERE prediction_uid = ?", (uid,))
+        
+        # Delete the prediction session
+        conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (uid,))
+
+    # Delete files from disk (fail silently if file missing)
+    for path_key in ["original_image", "predicted_image"]:
+        file_path = prediction[path_key]
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                print(f"Warning: Failed to delete {file_path} — {e}")
+
+    return {"detail": f"Prediction {uid} deleted successfully."}
+
+
 @app.get("/health")
 def health():
     """
