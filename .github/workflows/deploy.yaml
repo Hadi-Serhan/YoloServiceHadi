@@ -1,0 +1,55 @@
+name: Deploy Service
+
+on:
+  push:
+    branches:
+     - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.HOST }}
+        username: ubuntu
+        key: ${{ secrets.SSH_KEY }}
+        script: |
+          cd /home/ubuntu/YoloServiceHadi || (git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git && cd YoloServiceHadi)
+
+
+          echo "Pulling latest changes..."
+          git pull
+
+          bash -c '
+            if [ ! -d ".venv" ]; then
+              echo "Creating virtual environment..."
+              python3 -m venv .venv
+            else
+              echo "Virtual environment already exists."
+            fi
+
+            source .venv/bin/activate && \
+            pip install -r torch-requirements.txt && \
+            pip install -r requirements.txt
+
+            apt-get update && \
+            apt-get install ffmpeg libsm6 libxext6 -y
+
+            echo "Restarting the service..."
+            sudo systemctl restart yolo.service
+
+            status=$(systemctl is-active yolo.service)
+            if [ "$status" = "active" ]; then
+              echo "Service restarted successfully."
+            else
+              echo "Failed to restart the service."
+              exit 1
+            fi
+            '
