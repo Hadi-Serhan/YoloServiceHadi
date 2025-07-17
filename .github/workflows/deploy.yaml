@@ -20,37 +20,32 @@ jobs:
         host: ${{ secrets.HOST }}
         username: ubuntu
         key: ${{ secrets.SSH_KEY }}
+        port: 22
         
         script: |
           cd /home/ubuntu/YoloServiceHadi || (git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git && cd YoloServiceHadi)
 
-
           echo "Pulling latest changes..."
           git pull
 
-          bash -c '
-            if [ ! -d ".venv" ]; then
-              echo "Creating virtual environment..."
-              python3 -m venv .venv
-            else
-              echo "Virtual environment already exists."
-            fi
+          if [ ! -d ".venv" ]; then
+            echo "Creating virtual environment..."
+            python3 -m venv .venv
+          fi
 
-            source .venv/bin/activate && \
-            pip install -r torch-requirements.txt && \
-            pip install -r requirements.txt
+          source .venv/bin/activate
+          pip install -r torch-requirements.txt
+          pip install -r requirements.txt
 
-            apt-get update && \
-            apt-get install ffmpeg libsm6 libxext6 -y
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libsm6 libxext6
 
-            echo "Restarting the service..."
-            sudo systemctl restart yolo.service
+          echo "Restarting the service..."
+          sudo systemctl restart yolo.service
 
-            status=$(systemctl is-active yolo.service)
-            if [ "$status" = "active" ]; then
-              echo "Service restarted successfully."
-            else
-              echo "Failed to restart the service."
-              exit 1
-            fi
-            '
+          if systemctl is-active --quiet yolo.service; then
+            echo "Service restarted successfully."
+          else
+            echo "Service failed to start."
+            exit 1
+          fi
