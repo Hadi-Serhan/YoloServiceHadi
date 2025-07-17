@@ -1,6 +1,7 @@
 import time
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, Response
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from ultralytics import YOLO
 from PIL import Image
 import sqlite3
@@ -9,12 +10,15 @@ import uuid
 import shutil
 from datetime import datetime, timedelta
 from collections import Counter
+import base64
+import secrets
 
 # Disable GPU usage
 import torch
 torch.cuda.is_available = lambda: False
 
 app = FastAPI()
+security = HTTPBasic()
 
 UPLOAD_DIR = "uploads/original"
 PREDICTED_DIR = "uploads/predicted"
@@ -35,7 +39,9 @@ def init_db():
                 uid TEXT PRIMARY KEY,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 original_image TEXT,
-                predicted_image TEXT
+                predicted_image TEXT,
+                username TEXT NOT NULL,
+                FOREIGN KEY (username) REFERENCES users(username)
             )
         """)
         
@@ -50,6 +56,13 @@ def init_db():
                 FOREIGN KEY (prediction_uid) REFERENCES prediction_sessions (uid)
             )
         """)
+        # Create the users table for authentication
+        conn.execute("""
+                     CREATE TABLE If NOT EXISTS users (
+                        username TEXT PRIMARY KEY,
+                        password TEXT NOT NULL
+                     )
+                     """)
         
         # Create index for faster queries
         conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_uid ON detection_objects (prediction_uid)")
@@ -58,15 +71,35 @@ def init_db():
 
 init_db()
 
-def save_prediction_session(uid, original_image, predicted_image):
+def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
+    """
+    Verifies the username/password against the users table.
+    Returns the username if valid and raises 401 otherwise
+    """
+
+    correct_username = credentials.username
+    correct_password = credentials.password
+    
+    with sqlite3.connect(DB_PATH) as conn:
+        row = conn.execute("SELECT password FROM users WHERE username = ?", (correct_username,)).fetchone()
+        if not row or not secrets.compare_digest(row[0], correct_password):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid authentication credentials",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+    return correct_username
+
+
+def save_prediction_session(uid, original_image, predicted_image, username):
     """
     Save prediction session to database
     """
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("""
-            INSERT INTO prediction_sessions (uid, original_image, predicted_image)
-            VALUES (?, ?, ?)
-        """, (uid, original_image, predicted_image))
+            INSERT INTO prediction_sessions (uid, original_image, predicted_image, username)
+            VALUES (?, ?, ?, ?)
+        """, (uid, original_image, predicted_image, username))
 
 def save_detection_object(prediction_uid, label, score, box):
     """
@@ -79,7 +112,7 @@ def save_detection_object(prediction_uid, label, score, box):
         """, (prediction_uid, label, score, str(box)))
 
 @app.post("/predict")
-def predict(file: UploadFile = File(...)):
+def predict(file: UploadFile = File(...), username: str = Depends(get_current_username)):
     """
     Predict objects in an image
     """
@@ -99,7 +132,7 @@ def predict(file: UploadFile = File(...)):
     annotated_image = Image.fromarray(annotated_frame)
     annotated_image.save(predicted_path)
 
-    save_prediction_session(uid, original_path, predicted_path)
+    save_prediction_session(uid, original_path, predicted_path, username)
     
     detected_labels = []
     for box in results[0].boxes:
@@ -120,7 +153,7 @@ def predict(file: UploadFile = File(...)):
     }
 
 @app.get("/prediction/{uid}")
-def get_prediction_by_uid(uid: str):
+def get_prediction_by_uid(uid: str, username: str = Depends(get_current_username)):
     """
     Get prediction session by uid with all detected objects
     """
@@ -130,7 +163,9 @@ def get_prediction_by_uid(uid: str):
         session = conn.execute("SELECT * FROM prediction_sessions WHERE uid = ?", (uid,)).fetchone()
         if not session:
             raise HTTPException(status_code=404, detail="Prediction not found")
-            
+        # Check if the session belongs to the current user
+        if session['username'] != username:
+            raise HTTPException(status_code=403, detail="Access denied")
         # Get all detection objects for this prediction
         objects = conn.execute(
             "SELECT * FROM detection_objects WHERE prediction_uid = ?", 
@@ -153,7 +188,7 @@ def get_prediction_by_uid(uid: str):
         }
 
 @app.get("/predictions/label/{label}")
-def get_predictions_by_label(label: str):
+def get_predictions_by_label(label: str, username: str = Depends(get_current_username)):
     """
     Get prediction sessions containing objects with specified label
     """
@@ -167,13 +202,13 @@ def get_predictions_by_label(label: str):
             SELECT DISTINCT ps.uid, ps.timestamp
             FROM prediction_sessions ps
             JOIN detection_objects do ON ps.uid = do.prediction_uid
-            WHERE do.label = ?
-        """, (label,)).fetchall()
+            WHERE do.label = ? AND ps.username = ?
+        """, (label, username)).fetchall()
         
         return [{"uid": row["uid"], "timestamp": row["timestamp"]} for row in rows]
 
 @app.get("/predictions/score/{min_score}")
-def get_predictions_by_score(min_score: float):
+def get_predictions_by_score(min_score: float, username: str = Depends(get_current_username)):
     """
     Get prediction sessions containing objects with score >= min_score
     """
@@ -186,13 +221,13 @@ def get_predictions_by_score(min_score: float):
             SELECT DISTINCT ps.uid, ps.timestamp
             FROM prediction_sessions ps
             JOIN detection_objects do ON ps.uid = do.prediction_uid
-            WHERE do.score >= ?
-        """, (min_score,)).fetchall()
+            WHERE do.score >= ? AND username = ?
+        """, (min_score, username)).fetchall()
         
         return [{"uid": row["uid"], "timestamp": row["timestamp"]} for row in rows]
 
 @app.get("/image/{type}/{filename}")
-def get_image(type: str, filename: str):
+def get_image(type: str, filename: str, username: str = Depends(get_current_username)):
     """
     Get image by type and filename
     """
@@ -204,19 +239,22 @@ def get_image(type: str, filename: str):
     return FileResponse(path)
 
 @app.get("/predictions/count")
-def get_prediction_counter():
+def get_prediction_counter(username: str = Depends(get_current_username)):
     """
     Get total number of predictions within the past week
     """
     one_week_ago = datetime.now() - timedelta(days=7)
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT COUNT(*) as count FROM prediction_sessions WHERE timestamp >= ?",
-                           (one_week_ago.isoformat(),)).fetchone()
+        row = conn.execute("""
+                           SELECT COUNT(*) as count 
+                           FROM prediction_sessions 
+                           WHERE timestamp >= ? AND username = ?
+                           """,(one_week_ago.isoformat(), username)).fetchone()
     return {"count": row["count"]}
     
 @app.get("/labels")
-def get_recent_labels():
+def get_recent_labels(username: str = Depends(get_current_username)):
     """
     Get all unique labels detected in the last 7 days.
     """
@@ -229,21 +267,25 @@ def get_recent_labels():
             FROM detection_objects
             WHERE prediction_uid IN (
                 SELECT uid FROM prediction_sessions
-                WHERE timestamp >= ?
+                WHERE timestamp >= ? AND ps.username = ?
             )
-        """, (one_week_ago.isoformat(),)).fetchall()
+        """, (one_week_ago.isoformat(), username)).fetchall()
 
     return {"labels": [row["label"] for row in rows]}
 
     
 @app.get("/prediction/{uid}/image")
-def get_prediction_image(uid: str, request: Request):
+def get_prediction_image(uid: str, request: Request, username: str = Depends(get_current_username)):
     """
     Get prediction image by uid
     """
     accept = request.headers.get("accept", "")
     with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute("SELECT predicted_image FROM prediction_sessions WHERE uid = ?", (uid,)).fetchone()
+        row = conn.execute("""
+                           SELECT predicted_image 
+                           FROM prediction_sessions 
+                           WHERE uid = ? AND username = ?
+                           """, (uid, username)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Prediction not found")
         image_path = row[0]
@@ -261,7 +303,7 @@ def get_prediction_image(uid: str, request: Request):
 
 
 @app.delete("/prediction/{uid}")
-def delete_prediction(uid: str):
+def delete_prediction(uid: str, username: str = Depends(get_current_username)):
     """
     Delete a specific prediction and its related image files and detection objects.
     """
@@ -269,15 +311,19 @@ def delete_prediction(uid: str):
         conn.row_factory = sqlite3.Row
 
         # Fetch the prediction row
-        prediction = conn.execute("SELECT * FROM prediction_sessions WHERE uid = ?", (uid,)).fetchone()
+        prediction = conn.execute("""
+                                  SELECT * FROM prediction_sessions WHERE uid = ? AND username = ?
+                                  """, (uid, username)).fetchone()
         if not prediction:
             raise HTTPException(status_code=404, detail="Prediction not found")
 
         # Delete related detection objects
-        conn.execute("DELETE FROM detection_objects WHERE prediction_uid = ?", (uid,))
+        conn.execute("""DELETE FROM detection_objects
+                     WHERE prediction_uid = ? AND username = ?
+                     """, (uid, username))
         
         # Delete the prediction session
-        conn.execute("DELETE FROM prediction_sessions WHERE uid = ?", (uid,))
+        conn.execute("DELETE FROM prediction_sessions WHERE uid = ? AND username", (uid, username))
 
     # Delete files from disk (fail silently if file missing)
     for path_key in ["original_image", "predicted_image"]:
@@ -291,7 +337,7 @@ def delete_prediction(uid: str):
     return {"detail": f"Prediction {uid} deleted successfully."}
 
 @app.get("/stats")
-def get_stats():
+def get_stats(username: str = Depends(get_current_username)):
     """
     Get overall statistics and analytics about predictions in the last 7 days.
     """
@@ -304,8 +350,8 @@ def get_stats():
         total_predictions_row = conn.execute("""
             SELECT COUNT(*) as count
             FROM prediction_sessions
-            WHERE timestamp >= ?
-        """, (one_week_ago.isoformat(),)).fetchone()
+            WHERE timestamp >= ? AND username = ?
+        """, (one_week_ago.isoformat(), username)).fetchone()
         total_predictions = total_predictions_row["count"]
 
         # Get all detection objects for those predictions
@@ -314,9 +360,9 @@ def get_stats():
             FROM detection_objects
             WHERE prediction_uid IN (
                 SELECT uid FROM prediction_sessions
-                WHERE timestamp >= ?
+                WHERE timestamp >= ? AND username = ?
             )
-        """, (one_week_ago.isoformat(),)).fetchall()
+        """, (one_week_ago.isoformat(), username)).fetchall()
 
     scores = [row["score"] for row in rows]
     labels = [row["label"] for row in rows]
