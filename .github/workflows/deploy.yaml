@@ -20,7 +20,6 @@ jobs:
         host: ${{ secrets.HOST }}
         username: ubuntu
         key: ${{ secrets.SSH_KEY }}
-        port: 22
         
         script: |
           cd /home/ubuntu/YoloServiceHadi || (git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git && cd YoloServiceHadi)
