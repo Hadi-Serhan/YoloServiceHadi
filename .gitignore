@@ -6,7 +6,6 @@
 .env.development.local
 .env.test.local
 .env.production.local
-*.jpg
 *.pyc
 __pycache__/
 *.db

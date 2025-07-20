@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from collections import Counter
 import base64
 import secrets
+from typing import Optional
 
 # Disable GPU usage
 import torch
@@ -40,7 +41,7 @@ def init_db():
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 original_image TEXT,
                 predicted_image TEXT,
-                username TEXT NOT NULL,
+                username TEXT,
                 FOREIGN KEY (username) REFERENCES users(username)
             )
         """)
@@ -112,10 +113,16 @@ def save_detection_object(prediction_uid, label, score, box):
         """, (prediction_uid, label, score, str(box)))
 
 @app.post("/predict")
-def predict(file: UploadFile = File(...), username: str = Depends(get_current_username)):
+def predict(file: UploadFile = File(...), credentials: Optional[HTTPBasicCredentials] = Depends(HTTPBasic(auto_error=False))):
     """
     Predict objects in an image
     """
+    
+    username = None
+    if credentials:
+        get_current_username(credentials)
+        username = credentials.username
+        
     start_time = time.time()
     
     ext = os.path.splitext(file.filename)[1]
