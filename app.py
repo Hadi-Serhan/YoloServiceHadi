@@ -120,18 +120,27 @@ def predict(file: UploadFile = File(...), credentials: Optional[HTTPBasicCredent
     Predict objects in an image
     """
     
-    # If credentials are provided, use the username for saving the session
     if credentials:
-        username = credentials.username
         password = credentials.password
-        
+        username = credentials.username
         with sqlite3.connect(DB_PATH) as conn:
-            existing = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
-            if not existing:
-                conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
-        
-        if get_current_username(credentials) != username:
-            raise HTTPException(status_code=403, detail="Access denied")
+            cursor = conn.cursor()
+            row = cursor.execute("SELECT password FROM users WHERE username = ?", (username,)).fetchone()
+
+            if row is None:
+                # Auto-register user
+                cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+                conn.commit()
+            else:
+                # Validate password
+                if not secrets.compare_digest(row[0], password):
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid credentials",
+                        headers={"WWW-Authenticate": "Basic"},
+                    )
+    else: 
+        username = None
         
     start_time = time.time()
     
@@ -253,6 +262,17 @@ def get_image(type: str, filename: str, username: str = Depends(get_current_user
     path = os.path.join("uploads", type, filename)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Image not found")
+    
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("""
+            SELECT * FROM prediction_sessions 
+            WHERE {type}_image = ? AND username = ?
+        """, (path, username)).fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Access denied")
+        
     return FileResponse(path)
 
 @app.get("/predictions/count")
