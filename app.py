@@ -14,6 +14,9 @@ from collections import Counter
 import base64
 import secrets
 from typing import Optional
+from repository import query_prediction_by_uid
+from db import get_db
+from sqlalchemy.orm import Session
 
 # Disable GPU usage
 import torch
@@ -170,39 +173,19 @@ def predict(file: UploadFile = File(...), credentials: Optional[HTTPBasicCredent
     }
 
 @app.get("/prediction/{uid}")
-def get_prediction_by_uid(uid: str, username: str = Depends(get_current_username)):
-    """
-    Get prediction session by uid with all detected objects
-    """
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
-        # Get prediction session
-        session = conn.execute("SELECT * FROM prediction_sessions WHERE uid = ?", (uid,)).fetchone()
-        if not session:
-            raise HTTPException(status_code=404, detail="Prediction not found")
-        # Check if the session belongs to the current user
-        if session['username'] != username:
-            raise HTTPException(status_code=403, detail="Access denied")
-        # Get all detection objects for this prediction
-        objects = conn.execute(
-            "SELECT * FROM detection_objects WHERE prediction_uid = ?", 
-            (uid,)
-        ).fetchall()
-        
-        return {
-            "uid": session["uid"],
-            "timestamp": session["timestamp"],
-            "original_image": session["original_image"],
-            "predicted_image": session["predicted_image"],
-            "detection_objects": [
-                {
-                    "id": obj["id"],
-                    "label": obj["label"],
-                    "score": obj["score"],
-                    "box": obj["box"]
-                } for obj in objects
-            ]
-        }
+def get_prediction_by_uid(uid: str, db: Session = Depends(get_db), username: str = Depends(get_current_username)):
+    
+    prediction = query_prediction_by_uid(db, uid)
+    
+    if not prediction:
+        raise HTTPException(status_code=404, detail="Prediction not found")
+    
+    return {
+        "uid": prediction.uid,
+        "timestamp": prediction.timestamp,
+        "original_image": prediction.original_image,
+        "predicted_image": prediction.predicted_image
+    }
 
 @app.get("/predictions/label/{label}")
 def get_predictions_by_label(label: str, username: str = Depends(get_current_username)):

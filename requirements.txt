@@ -8,3 +8,5 @@ httpx
 # Ultralytics YOLOv8 (includes minimal dependencies)
 ultralytics>=8.0.0
 python-multipart>=0.0.6
+
+SQLAlchemy
