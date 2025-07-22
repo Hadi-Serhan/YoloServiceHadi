@@ -28,16 +28,23 @@ class TestDeletePredictionByUID(unittest.TestCase):
         with open(self.predicted_path, "wb") as f:
             f.write(b"predicted image content")
 
-        # Insert into DB
+        # Add test user
+        self.username = "alice"
+        self.password = "pass123"
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (self.username, self.password))
+
+        # Insert prediction associated with the user
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute("""
-                INSERT INTO prediction_sessions (uid, timestamp, original_image, predicted_image)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO prediction_sessions (uid, timestamp, original_image, predicted_image, username)
+                VALUES (?, ?, ?, ?, ?)
             """, (
                 self.uid,
                 datetime.now(timezone.utc).isoformat(),
                 self.original_path,
-                self.predicted_path
+                self.predicted_path,
+                self.username
             ))
             conn.execute("""
                 INSERT INTO detection_objects (prediction_uid, label, score, box)
@@ -51,7 +58,7 @@ class TestDeletePredictionByUID(unittest.TestCase):
 
     def test_delete_existing_prediction(self):
         """Should delete prediction from DB and delete files"""
-        response = self.client.delete(f"/prediction/{self.uid}")
+        response = self.client.delete(f"/prediction/{self.uid}", auth=(self.username, self.password))
         self.assertEqual(response.status_code, 200)
         self.assertIn("deleted successfully", response.json()["detail"])
 
@@ -68,7 +75,7 @@ class TestDeletePredictionByUID(unittest.TestCase):
 
     def test_delete_nonexistent_prediction(self):
         """Should return 404 if prediction UID doesn't exist"""
-        response = self.client.delete("/prediction/nonexistent-uid")
+        response = self.client.delete("/prediction/nonexistent-uid", auth=(self.username, self.password))
         self.assertEqual(response.status_code, 404)
         self.assertIn("Prediction not found", response.json()["detail"])
 
@@ -77,6 +84,6 @@ class TestDeletePredictionByUID(unittest.TestCase):
         os.remove(self.original_path)
         os.remove(self.predicted_path)
 
-        response = self.client.delete(f"/prediction/{self.uid}")
+        response = self.client.delete(f"/prediction/{self.uid}", auth=(self.username, self.password))
         self.assertEqual(response.status_code, 200)
         self.assertIn("deleted successfully", response.json()["detail"])
