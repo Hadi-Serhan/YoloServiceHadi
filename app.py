@@ -1,7 +1,8 @@
 import time
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Depends, status
 from fastapi.responses import FileResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from scipy import stats
 from ultralytics import YOLO
 from PIL import Image
 import sqlite3
@@ -73,23 +74,24 @@ def init_db():
 init_db()
 
 def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
-    """
-    Verifies the username/password against the users table.
-    Returns the username if valid and raises 401 otherwise
-    """
+    username = credentials.username
+    password = credentials.password
 
-    correct_username = credentials.username
-    correct_password = credentials.password
-    
-    with sqlite3.connect(DB_PATH) as conn:
-        row = conn.execute("SELECT password FROM users WHERE username = ?", (correct_username,)).fetchone()
-        if not row or not secrets.compare_digest(row[0], correct_password):
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Basic"},
-            )
-    return correct_username
+    # Connect to the database and look up the user
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row or not secrets.compare_digest(row[0], password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    return username
 
 
 def save_prediction_session(uid, original_image, predicted_image, username):
@@ -118,10 +120,18 @@ def predict(file: UploadFile = File(...), credentials: Optional[HTTPBasicCredent
     Predict objects in an image
     """
     
-    username = None
+    # If credentials are provided, use the username for saving the session
     if credentials:
-        get_current_username(credentials)
         username = credentials.username
+        password = credentials.password
+        
+        with sqlite3.connect(DB_PATH) as conn:
+            existing = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
+            if not existing:
+                conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+        
+        if get_current_username(credentials) != username:
+            raise HTTPException(status_code=403, detail="Access denied")
         
     start_time = time.time()
     
@@ -274,7 +284,7 @@ def get_recent_labels(username: str = Depends(get_current_username)):
             FROM detection_objects
             WHERE prediction_uid IN (
                 SELECT uid FROM prediction_sessions
-                WHERE timestamp >= ? AND ps.username = ?
+                WHERE timestamp >= ? AND username = ?
             )
         """, (one_week_ago.isoformat(), username)).fetchall()
 
@@ -326,11 +336,11 @@ def delete_prediction(uid: str, username: str = Depends(get_current_username)):
 
         # Delete related detection objects
         conn.execute("""DELETE FROM detection_objects
-                     WHERE prediction_uid = ? AND username = ?
-                     """, (uid, username))
+                     WHERE prediction_uid = ?
+                     """, (uid,))
         
         # Delete the prediction session
-        conn.execute("DELETE FROM prediction_sessions WHERE uid = ? AND username", (uid, username))
+        conn.execute("DELETE FROM prediction_sessions WHERE uid = ? AND username = ?", (uid, username))
 
     # Delete files from disk (fail silently if file missing)
     for path_key in ["original_image", "predicted_image"]:
