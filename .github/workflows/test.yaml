@@ -30,7 +30,7 @@ jobs:
         env:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: |
-          pytest --cov=app --cov-report=term-missing --cov-report=xml
+          pytest --cov=app --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
