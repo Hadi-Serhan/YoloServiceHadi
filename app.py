@@ -236,21 +236,23 @@ def get_predictions_by_label(label: str, username: str = Depends(get_current_use
 @app.get("/predictions/score/{min_score}")
 def get_predictions_by_score(min_score: float, username: str = Depends(get_current_username)):
     """
-    Get prediction sessions containing objects with score >= min_score
+    Get prediction sessions containing objects with score >= min_score.
+    Each returned entry includes UID, timestamp, and score.
     """
-    if not (min_score >= 0 and min_score <= 1):
+    if not (0 <= min_score <= 1):
         raise HTTPException(status_code=400, detail="Score must be between 0 and 1")
     
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
-            SELECT DISTINCT ps.uid, ps.timestamp
+            SELECT ps.uid, ps.timestamp, do.score
             FROM prediction_sessions ps
             JOIN detection_objects do ON ps.uid = do.prediction_uid
-            WHERE do.score >= ? AND username = ?
+            WHERE do.score >= ? AND ps.username = ?
         """, (min_score, username)).fetchall()
         
-        return [{"uid": row["uid"], "timestamp": row["timestamp"]} for row in rows]
+        return [{"uid": row["uid"], "timestamp": row["timestamp"], "score": row["score"]} for row in rows]
+
 
 @app.get("/image/{type}/{filename}")
 def get_image(type: str, filename: str, username: str = Depends(get_current_username)):
@@ -265,10 +267,9 @@ def get_image(type: str, filename: str, username: str = Depends(get_current_user
     
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("""
-            SELECT * FROM prediction_sessions 
-            WHERE {type}_image = ? AND username = ?
-        """, (path, username)).fetchone()
+        column = f"{type}_image"
+        query = f"SELECT * FROM prediction_sessions WHERE {column} = ? AND username = ?"
+        row = conn.execute(query, (path, username)).fetchone()
         
         if not row:
             raise HTTPException(status_code=404, detail="Access denied")
@@ -424,6 +425,6 @@ def health():
     """
     return {"status": "ok"}
 
-if __name__ == "__main__":
+if __name__ == "__main__": # pragma: no cover
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)

@@ -1,3 +1,4 @@
+# tests/test_delete_prediction_by_uid.py
 import unittest
 from fastapi.testclient import TestClient
 from datetime import datetime, timezone
@@ -79,11 +80,31 @@ class TestDeletePredictionByUID(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn("Prediction not found", response.json()["detail"])
 
-    def test_delete_when_files_already_missing(self):
-        """Should still delete DB record even if files don't exist"""
-        os.remove(self.original_path)
-        os.remove(self.predicted_path)
+    def test_delete_when_file_delete_raises_exception(self):
+        """Should still delete DB record even if file deletion fails"""
+        # Make the file read-only to trigger deletion failure
+        os.chmod(self.original_path, 0o400)  # read-only
+        os.chmod(self.predicted_path, 0o400)
 
-        response = self.client.delete(f"/prediction/{self.uid}", auth=(self.username, self.password))
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("deleted successfully", response.json()["detail"])
+        # Monkey-patch os.remove to raise an exception for coverage
+        original_remove = os.remove
+
+        def failing_remove(path):
+            raise PermissionError(f"Cannot delete {path}")
+
+        os.remove = failing_remove
+
+        try:
+            response = self.client.delete(f"/prediction/{self.uid}", auth=(self.username, self.password))
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("deleted successfully", response.json()["detail"])
+        finally:
+            # Restore os.remove and permissions
+            os.remove = original_remove
+            os.chmod(self.original_path, 0o600)
+            os.chmod(self.predicted_path, 0o600)
+            if os.path.exists(self.original_path):
+                os.remove(self.original_path)
+            if os.path.exists(self.predicted_path):
+                os.remove(self.predicted_path)
+
