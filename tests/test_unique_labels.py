@@ -1,3 +1,4 @@
+# tests/test_unique_labels.py
 import unittest
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta, timezone
@@ -70,3 +71,20 @@ class TestUniqueLabels(unittest.TestCase):
         self.assertIn("dog", labels)
         self.assertNotIn("elephant", labels)
         self.assertEqual(sorted(labels), sorted(set(labels)))  # ensure uniqueness
+
+
+    def test_invalid_label_gives_404(self):
+        response = self.client.get("/predictions/label/doesntexist", auth=("alice", "pass123"))
+        self.assertEqual(response.status_code, 404)
+
+
+    def test_predictions_by_valid_label(self):
+        now = datetime.now(timezone.utc)
+        uid = "label-success"
+        self.insert_prediction(uid, now - timedelta(days=1))
+        self.insert_object(uid, "dog")
+
+        response = self.client.get("/predictions/label/dog", auth=(self.username, self.password))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(any(d["uid"] == uid for d in data))
