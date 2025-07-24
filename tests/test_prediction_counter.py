@@ -1,3 +1,4 @@
+# tests/test_prediction_counter.py
 import unittest
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta, timezone
@@ -15,17 +16,23 @@ class TestPredictionCounter(unittest.TestCase):
             os.remove(DB_PATH)
         init_db()
 
+        # Create test user
+        self.username = "alice"
+        self.password = "pass123"
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (self.username, self.password))
+
     def insert_prediction(self, timestamp: datetime):
         with sqlite3.connect(DB_PATH) as conn:
             uid = f"test-{timestamp.timestamp()}"
             conn.execute("""
-                INSERT INTO prediction_sessions (uid, timestamp, original_image, predicted_image)
-                VALUES (?, ?, ?, ?)
-            """, (uid, timestamp.isoformat(), "original.jpg", "predicted.jpg"))
+                INSERT INTO prediction_sessions (uid, username, timestamp, original_image, predicted_image)
+                VALUES (?, ?, ?, ?, ?)
+            """, (uid, self.username, timestamp.isoformat(), "original.jpg", "predicted.jpg"))
 
     def test_prediction_counter_empty(self):
         """Should return 0 when there are no predictions"""
-        response = self.client.get("/predictions/count")
+        response = self.client.get("/predictions/count", auth=(self.username, self.password))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 0)
 
@@ -40,6 +47,6 @@ class TestPredictionCounter(unittest.TestCase):
         self.insert_prediction(now - timedelta(days=8))
         self.insert_prediction(now - timedelta(days=30))
 
-        response = self.client.get("/predictions/count")
+        response = self.client.get("/predictions/count", auth=(self.username, self.password))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 3)

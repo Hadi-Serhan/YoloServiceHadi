@@ -123,18 +123,27 @@ def predict(file: UploadFile = File(...), credentials: Optional[HTTPBasicCredent
     Predict objects in an image
     """
     
-    # If credentials are provided, use the username for saving the session
     if credentials:
-        username = credentials.username
         password = credentials.password
-        
+        username = credentials.username
         with sqlite3.connect(DB_PATH) as conn:
-            existing = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
-            if not existing:
-                conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
-        
-        if get_current_username(credentials) != username:
-            raise HTTPException(status_code=403, detail="Access denied")
+            cursor = conn.cursor()
+            row = cursor.execute("SELECT password FROM users WHERE username = ?", (username,)).fetchone()
+
+            if row is None:
+                # Auto-register user
+                cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
+                conn.commit()
+            else:
+                # Validate password
+                if not secrets.compare_digest(row[0], password):
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid credentials",
+                        headers={"WWW-Authenticate": "Basic"},
+                    )
+    else: 
+        username = None
         
     start_time = time.time()
     
@@ -210,21 +219,23 @@ def get_predictions_by_label(label: str, username: str = Depends(get_current_use
 @app.get("/predictions/score/{min_score}")
 def get_predictions_by_score(min_score: float, username: str = Depends(get_current_username)):
     """
-    Get prediction sessions containing objects with score >= min_score
+    Get prediction sessions containing objects with score >= min_score.
+    Each returned entry includes UID, timestamp, and score.
     """
-    if not (min_score >= 0 and min_score <= 1):
+    if not (0 <= min_score <= 1):
         raise HTTPException(status_code=400, detail="Score must be between 0 and 1")
     
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
-            SELECT DISTINCT ps.uid, ps.timestamp
+            SELECT ps.uid, ps.timestamp, do.score
             FROM prediction_sessions ps
             JOIN detection_objects do ON ps.uid = do.prediction_uid
-            WHERE do.score >= ? AND username = ?
+            WHERE do.score >= ? AND ps.username = ?
         """, (min_score, username)).fetchall()
         
-        return [{"uid": row["uid"], "timestamp": row["timestamp"]} for row in rows]
+        return [{"uid": row["uid"], "timestamp": row["timestamp"], "score": row["score"]} for row in rows]
+
 
 @app.get("/image/{type}/{filename}")
 def get_image(type: str, filename: str, username: str = Depends(get_current_username)):
@@ -236,6 +247,16 @@ def get_image(type: str, filename: str, username: str = Depends(get_current_user
     path = os.path.join("uploads", type, filename)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Image not found")
+    
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        column = f"{type}_image"
+        query = f"SELECT * FROM prediction_sessions WHERE {column} = ? AND username = ?"
+        row = conn.execute(query, (path, username)).fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Access denied")
+        
     return FileResponse(path)
 
 @app.get("/predictions/count")
@@ -387,6 +408,6 @@ def health():
     """
     return {"status": "ok"}
 
-if __name__ == "__main__":
+if __name__ == "__main__": # pragma: no cover
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
