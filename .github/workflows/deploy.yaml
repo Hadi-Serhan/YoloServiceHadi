@@ -22,7 +22,6 @@ jobs:
         key: ${{ secrets.SSH_KEY }}
         
         script: |
-          cd /home/ubuntu
 
           if [ ! -d "YoloServiceHadi" ]; then
             git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git
