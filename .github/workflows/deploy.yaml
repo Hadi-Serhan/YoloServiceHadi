@@ -22,13 +22,31 @@ jobs:
         key: ${{ secrets.SSH_KEY }}
         
         script: |
-          cd /home/ubuntu/YoloServiceHadi || (git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git && cd YoloServiceHadi)
+          cd /home/ubuntu
 
-          echo "Pulling latest changes..."
-          git pull
+          # If the repo folder doesn't exist, clone it
+          if [ ! -d "YoloServiceHadi" ]; then
+            echo "Cloning repository..."
+            git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git
+          fi
 
+          cd YoloServiceHadi
+
+          # Check if it's a git repo
+          if [ -d ".git" ]; then
+            echo "Fetching and resetting to origin/main..."
+            git fetch origin
+            git reset --hard origin/main
+          else
+            echo "Directory exists but is not a Git repository. Cleaning up..."
+            cd ..
+            rm -rf YoloServiceHadi
+            git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git
+            cd YoloServiceHadi
+          fi
+
+          echo "Setting up environment..."
           if [ ! -d ".venv" ]; then
-            echo "Creating virtual environment..."
             python3 -m venv .venv
           fi
 
