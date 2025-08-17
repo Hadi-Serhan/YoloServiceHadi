@@ -3,48 +3,73 @@ name: Deploy Service
 on:
   push:
     branches:
-     - main
+      - main
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Deploy to server
       uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.HOST }}
         username: ubuntu
         key: ${{ secrets.SSH_KEY }}
-        
+
         script: |
-          cd /home/ubuntu/YoloServiceHadi || (git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git && cd YoloServiceHadi)
+          set -e  # Fail the script on any command error
 
-          echo "Pulling latest changes..."
-          git pull
+          # Clone if missing
+          if [ ! -d "YoloServiceHadi" ]; then
+            echo "Cloning repository..."
+            git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git
+          fi
 
-          if [ ! -d ".venv" ]; then
+          cd YoloServiceHadi
+
+          # Reset to latest main
+          if [ -d ".git" ]; then
+            echo "Resetting to origin/main..."
+            git fetch origin
+            git reset --hard origin/main
+          fi
+
+          # Ensure venv prerequisites
+          echo "Installing python3-venv if missing..."
+          sudo apt-get update
+          sudo apt-get install -y python3-venv
+
+          # (Re)create .venv if missing or broken
+          if [ ! -f ".venv/bin/activate" ]; then
             echo "Creating virtual environment..."
+            rm -rf .venv
             python3 -m venv .venv
           fi
 
+          # Activate and install Python dependencies
           source .venv/bin/activate
+          pip install --upgrade pip
           pip install -r torch-requirements.txt
           pip install -r requirements.txt
 
-          sudo apt-get update
+          # Ensure system libraries are present
           sudo apt-get install -y ffmpeg libsm6 libxext6
 
+          # Restart systemd service
           echo "Restarting the service..."
+          sudo systemctl daemon-reload
           sudo systemctl restart yolo.service
 
+          # Check service status
           if systemctl is-active --quiet yolo.service; then
             echo "Service restarted successfully."
           else
             echo "Service failed to start."
+            sudo journalctl -u yolo.service -n 50
             exit 1
           fi
