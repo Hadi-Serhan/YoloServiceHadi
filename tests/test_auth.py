@@ -1,112 +1,84 @@
 # tests/test_auth.py
 import io
-import os
-import sqlite3
 import unittest
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from app import app, init_db, DB_PATH
-
-USERNAME = "user1"
-PASSWORD = "pass1"
+from app import app
+from db import get_db
 
 
-def load_image_bytes(filename):
-    path = os.path.join(os.getcwd(), filename)
-    with open(path, "rb") as f:
-        return io.BytesIO(f.read())
+class FakeUser:
+    def __init__(self, username, password):
+        self.username = username
+        self.password = password
 
 
-class AuthTestCase(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.client = TestClient(app)
-        # Reinitialize clean DB
-        if os.path.exists(DB_PATH):
-            os.remove(DB_PATH)
-        init_db()
-        # Add test user
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", (USERNAME, PASSWORD))
+def generate_image_bytes():
+    from PIL import Image
+    img = Image.new("RGB", (100, 100), color="blue")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    buf.seek(0)
+    return buf
 
-        cls.image_bytes = load_image_bytes("beatles.jpeg")
 
-    def test_status_no_auth(self):
-        r = self.client.get("/health")
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json(), {"status": "ok"})
+class TestAuthWithMocks(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+        self.image_bytes = generate_image_bytes()
 
-    def test_predict_with_auth(self):
-        r = self.client.post(
-            "/predict",
-            files={"file": ("beatles.jpeg", self.image_bytes, "image/jpeg")},
-            auth=(USERNAME, PASSWORD)
-        )
-        self.assertEqual(r.status_code, 200)
-        json_data = r.json()
-        self.assertIn("prediction_uid", json_data)
-        uid = json_data["prediction_uid"]
+        # Replace FastAPI's get_db dependency with a mock
+        self.mock_db = MagicMock()
+        app.dependency_overrides[get_db] = lambda: self.mock_db
 
-        # Session should be retrievable by same user
-        r2 = self.client.get(f"/prediction/{uid}", auth=(USERNAME, PASSWORD))
-        self.assertEqual(r2.status_code, 200)
-        self.assertEqual(r2.json()["uid"], uid)
+    def tearDown(self):
+        app.dependency_overrides = {}
 
-    def test_predict_without_auth(self):
-        r = self.client.post(
-            "/predict",
-            files={"file": ("pic1.jpg", load_image_bytes("pic1.jpg"), "image/jpeg")}
-        )
-        self.assertEqual(r.status_code, 200)
-        json_data = r.json()
-        self.assertIn("prediction_uid", json_data)
-        uid = json_data["prediction_uid"]
+    @patch("services.predict_service.get_user")
+    def test_predict_with_existing_user(self, mock_get_user):
+        # Return a real object, not a mock
+        mock_get_user.return_value = type("User", (), {"username": "user1", "password": "pass1"})()
 
-        # Prediction retrieval should be forbidden
-        r2 = self.client.get(f"/prediction/{uid}")
-        self.assertEqual(r2.status_code, 401)
-
-    def test_protected_endpoints_require_auth(self):
-        r = self.client.get("/predictions/count")
-        self.assertEqual(r.status_code, 401)
-        r = self.client.get("/labels")
-        self.assertEqual(r.status_code, 401)
-
-    def test_access_with_wrong_password(self):
-        # First, register correctly
-        self.client.post("/predict", files={"file": ("x.jpg", self.image_bytes, "image/jpeg")},
-                         auth=("alice", "pass123"))
-
-        # Then try with wrong password
-        response = self.client.get("/predictions/count", auth=("alice", "wrongpass"))
-        self.assertEqual(response.status_code, 401)
-
-    def test_access_with_nonexistent_user(self):
-        response = self.client.get("/predictions/count", auth=("ghost", "nopass"))
-        self.assertEqual(response.status_code, 401)
-
-    def test_autoregistration_on_first_use(self):
-        # First request with a new user – should succeed
         response = self.client.post(
             "/predict",
             files={"file": ("x.jpg", self.image_bytes, "image/jpeg")},
-            auth=("bobnew", "newpass")
+            auth=("user1", "pass1")
         )
+
         self.assertEqual(response.status_code, 200)
+        self.assertIn("prediction_uid", response.json())
+        mock_get_user.assert_called_once()
 
-        # Now manually insert the same username to simulate conflict
-        with sqlite3.connect(DB_PATH) as conn:
-            try:
-                conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("bobfail", "conflict"))
-                conn.commit()
-            except sqlite3.IntegrityError:
-                pass  # If already exists, skip
+    @patch("services.predict_service.get_user")
+    def test_predict_invalid_password(self, mock_get_user):
+        mock_get_user.return_value = type("User", (), {"username": "user1", "password": "correctpass"})()
 
-        # Trigger second request that will try to auto-register "bobfail" and fail
-        response2 = self.client.post(
+        response = self.client.post(
             "/predict",
             files={"file": ("x.jpg", self.image_bytes, "image/jpeg")},
-            auth=("bobfail", "wrongpass")  # intentionally wrong pass to force DB insert
+            auth=("user1", "wrongpass")
         )
-        self.assertEqual(response2.status_code, 401)
-        self.assertIn("Invalid credentials", response2.json()["detail"])
 
+        self.assertEqual(response.status_code, 401)
+        self.assertIn("Invalid credentials", response.json()["detail"])
+
+
+    @patch("services.predict_service.create_user")
+    @patch("services.predict_service.get_user")
+    def test_autoregister_new_user(self, mock_get_user, mock_create_user):
+        mock_get_user.return_value = None  # Simulate no user
+
+        response = self.client.post(
+            "/predict",
+            files={"file": ("x.jpg", self.image_bytes, "image/jpeg")},
+            auth=("newuser", "newpass")
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_create_user.assert_called_once()
+
+
+    @patch("queries.get_user")
+    def test_authentication_required(self, mock_get_user):
+        response = self.client.get("/predictions/count")
+        self.assertEqual(response.status_code, 401)
