@@ -23,7 +23,7 @@ def create_tables():# pragma: no cover
 def health():# pragma: no cover
     return {"status": "ok"}
 
-
+#
 # Register routers
 app.include_router(predict_controller.router)
 app.include_router(prediction_uid_controller.router)
