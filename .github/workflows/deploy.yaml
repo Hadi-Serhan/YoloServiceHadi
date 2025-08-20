@@ -24,8 +24,8 @@ jobs:
         debug: true
         request_pty: true
         script_stop: true
-        timeout: 900
-        command_timeout: 600
+        timeout: 120s
+        command_timeout: 120s
 
         script: |
           set -euxo pipefail  # fail fast, show where it stops
