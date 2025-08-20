@@ -20,9 +20,18 @@ jobs:
         host: ${{ secrets.HOST }}
         username: ubuntu
         key: ${{ secrets.SSH_KEY }}
+        port: 22
+        debug: true
+        request_pty: true
+        script_stop: true
+        timeout: 900
+        command_timeout: 600
 
         script: |
-          set -e  # Fail the script on any command error
+          set -euxo pipefail  # fail fast, show where it stops
+
+          # Ensure sudo won't prompt (prevents hang)
+          sudo -n true || { echo "sudo requires a password (configure NOPASSWD)"; exit 1; }
 
           # Clone if missing
           if [ ! -d "YoloServiceHadi" ]; then
@@ -39,10 +48,10 @@ jobs:
             git reset --hard origin/main
           fi
 
-          # Ensure venv prerequisites
+          # Ensure venv prerequisites (non-interactive apt with lock timeout)
           echo "Installing python3-venv if missing..."
-          sudo apt-get update
-          sudo apt-get install -y python3-venv
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update -o DPkg::Lock::Timeout=60
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 python3-venv
 
           # (Re)create .venv if missing or broken
           if [ ! -f ".venv/bin/activate" ]; then
@@ -52,13 +61,14 @@ jobs:
           fi
 
           # Activate and install Python dependencies
+          # shellcheck disable=SC1091
           source .venv/bin/activate
           pip install --upgrade pip
           pip install -r torch-requirements.txt
           pip install -r requirements.txt
 
-          # Ensure system libraries are present
-          sudo apt-get install -y ffmpeg libsm6 libxext6
+          # Ensure system libraries are present (non-interactive)
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 ffmpeg libsm6 libxext6
 
           # Restart systemd service
           echo "Restarting the service..."
@@ -70,6 +80,6 @@ jobs:
             echo "Service restarted successfully."
           else
             echo "Service failed to start."
-            sudo journalctl -u yolo.service -n 50
+            sudo journalctl -u yolo.service -n 50 --no-pager
             exit 1
           fi
