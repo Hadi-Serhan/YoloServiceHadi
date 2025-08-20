@@ -14,18 +14,21 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # NEW: print runner egress IP so you can allow it on SG (TCP 22)
+    - name: Show runner public IP
+      run: curl -s https://api.ipify.org && echo
+
     - name: Deploy to server
       uses: appleboy/ssh-action@v1.0.3
       with:
-        host: ${{ secrets.HOST }}
+        host: ${{ secrets.HOST }}     # must be PUBLIC IP/DNS, no http://
         username: ubuntu
         key: ${{ secrets.SSH_KEY }}
         port: 22
         debug: true
         script_stop: true
-        timeout: 15m          # was plain number; use duration and give headroom
-        command_timeout: 10m  # per-command timeout; works when no PTY
-        # request_pty: true   # ← removed so timeouts apply
+        timeout: 30s                  # short connect-timeout -> fail fast if SG blocks
+        command_timeout: 10m          # still gives pip/apt time once connected
 
         script: |
           set -euxo pipefail  # fail fast, show where it stops
