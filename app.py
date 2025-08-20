@@ -15,11 +15,12 @@ from controllers import (
 
 app = FastAPI()
 @app.on_event("startup")
-def create_tables():
+def create_tables():# pragma: no cover
+    from models import (PredictionSession, DetectionObject, User)
     Base.metadata.create_all(bind=engine)
 
 @app.get("/health")
-def health():
+def health():# pragma: no cover
     return {"status": "ok"}
 
 

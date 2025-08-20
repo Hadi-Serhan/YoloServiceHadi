@@ -23,3 +23,5 @@ def get_db():
         yield db
     finally:
         db.close()
+
+import models  # Ensure models are imported to create tables

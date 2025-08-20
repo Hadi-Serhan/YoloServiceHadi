@@ -3,9 +3,8 @@
 from sqlalchemy import Column, String, DateTime, Integer, Float, ForeignKey
 from sqlalchemy.orm import declarative_base
 from datetime import datetime
-
+from db import Base
 # All models inherit from this base class
-Base = declarative_base()
 
 
 class PredictionSession(Base):
