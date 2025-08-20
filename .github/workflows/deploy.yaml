@@ -22,10 +22,10 @@ jobs:
         key: ${{ secrets.SSH_KEY }}
         port: 22
         debug: true
-        request_pty: true
         script_stop: true
-        timeout: 120s
-        command_timeout: 120s
+        timeout: 15m          # was plain number; use duration and give headroom
+        command_timeout: 10m  # per-command timeout; works when no PTY
+        # request_pty: true   # ← removed so timeouts apply
 
         script: |
           set -euxo pipefail  # fail fast, show where it stops
