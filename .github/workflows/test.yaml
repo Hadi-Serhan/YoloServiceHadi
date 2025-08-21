@@ -63,10 +63,14 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
+      # Install Allure CLI via npm (works on GitHub-hosted runners)
+      - name: Set up Node (for Allure CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install Allure CLI
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y allure
+        run: npm i -g allure-commandline@2.30.0 --no-progress
 
       - name: Generate Allure report
         run: allure generate allure-results -o allure-report --clean
