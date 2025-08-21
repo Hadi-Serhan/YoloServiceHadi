@@ -3,15 +3,15 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DB_BACKEND = os.getenv("DB_BACKEND", "sqlite")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if DB_BACKEND == "sqlite" or not DATABASE_URL:
+if not DATABASE_URL:
+    # default to a local SQLite file if nothing provided
     DATABASE_URL = "sqlite:///./predictions.db"
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {},
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)

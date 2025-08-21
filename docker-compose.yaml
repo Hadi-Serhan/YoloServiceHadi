@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   api:
     build: .
@@ -9,6 +7,9 @@ services:
       - .:/app
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/predictions
+
     command: uvicorn app:app --host 0.0.0.0 --port 8080 --reload
     depends_on:
       - db
