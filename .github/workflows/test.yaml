@@ -4,13 +4,12 @@ on:
   pull_request:
     branches:
       - main
-  push:                      # ← added so Pages can publish on pushes to main
+  push:
     branches:
       - main
 
-# ← required for GitHub Pages
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -34,6 +33,11 @@ jobs:
           pip install -r torch-requirements.txt
           pip install -r requirements.txt
           pip install pytest pytest-cov allure-pytest
+
+      - name: Prepare upload directories
+        run: |
+          UPLOADS_DIR="${UPLOADS_BASE_DIR:-uploads}"
+          mkdir -p "$UPLOADS_DIR/original" "$UPLOADS_DIR/predicted"
 
       - name: Run tests with coverage + Allure results
         env:
@@ -59,31 +63,26 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
-      # Install Allure CLI directly on the runner
       - name: Install Allure CLI
         run: |
           sudo apt-get update
           sudo apt-get install -y allure
 
-      # Generate the Allure HTML report
       - name: Generate Allure report
         run: allure generate allure-results -o allure-report --clean
 
-      # Keep: artifact you can download from the run
       - name: Upload Allure HTML report
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: allure-report
 
-      # NEW: Upload the report as a Pages artifact (only on push to main)
       - name: Upload Allure report to GitHub Pages artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: allure-report
 
-  # NEW: Deploy the Pages artifact to GitHub Pages (only on push to main)
   deploy-pages:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
