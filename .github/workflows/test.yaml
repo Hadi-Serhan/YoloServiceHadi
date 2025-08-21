@@ -24,13 +24,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r torch-requirements.txt
           pip install -r requirements.txt
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov allure-pytest
 
-      - name: Run tests with coverage
+      - name: Run tests with coverage + Allure results
         env:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: |
-          pytest --cov=app --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
+          pytest \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --junitxml=junit.xml \
+            --alluredir=allure-results
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
@@ -44,3 +49,20 @@ jobs:
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+      # Install Allure CLI directly on the runner
+      - name: Install Allure CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y allure
+
+      # Generate the Allure HTML report
+      - name: Generate Allure report
+        run: allure generate allure-results -o allure-report --clean
+
+      # Upload the HTML as an artifact you can download from the run
+      - name: Upload Allure HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report
