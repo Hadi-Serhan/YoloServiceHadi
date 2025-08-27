@@ -12,3 +12,4 @@ __pycache__/
 *.pt
 *.json
 uploads/
+allure-results/

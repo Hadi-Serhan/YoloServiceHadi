@@ -1,24 +1,21 @@
-# Dockerfile
-FROM python:3.12-slim
+FROM python:3.10-slim-bookworm
 
-# Set working directory
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-    libgl1 \
-    libglib2.0-0 \
-    ffmpeg \
-    libsm6 \
-    libxext6 \
- && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 libgl1 libsm6 libxext6 libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY torch-requirements.txt requirements.txt ./
 
 
-# Copy project files
+RUN pip install -r torch-requirements.txt
+RUN pip install -r requirements.txt
+
 COPY . .
 
-# Install dependencies
-RUN pip install --no-cache-dir -r torch-requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Default command
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "app.py"]

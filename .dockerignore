@@ -13,3 +13,6 @@ tests/
 .git
 .gitignore
 .env
+allure-results/
+*.jpg
+*.jpeg
