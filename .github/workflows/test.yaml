@@ -59,8 +59,7 @@ jobs:
           mkdir -p "$UPLOADS_DIR/original" "$UPLOADS_DIR/predicted"
       - name: Run tests with coverage + Allure results
         env:
-          # force sqlite in CI; avoids Postgres accidentally
-          DATABASE_URL: sqlite:///./test.db
+          DATABASE_URL: sqlite:///./test.db   # force sqlite in CI
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: |
           pytest \
@@ -88,10 +87,15 @@ jobs:
         run: npm i -g allure-commandline@2.30.0 --no-progress
       - name: Generate Allure report
         run: allure generate allure-results -o allure-report --clean
-      - name: Upload Allure HTML report
+      - name: Upload Allure HTML report (artifact for PRs/debug)
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
+          path: allure-report
+      # NEW: always create the special Pages artifact so deploy-pages can find it
+      - name: Upload Pages artifact (Allure HTML)
+        uses: actions/upload-pages-artifact@v3
+        with:
           path: allure-report
 
   deploy-pages:
