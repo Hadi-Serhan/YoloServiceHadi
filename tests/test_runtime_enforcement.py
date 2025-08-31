@@ -1,21 +1,27 @@
+# tests/test_runtime_enforcement.py
 import io
+import os
+import asyncio
 from datetime import datetime, timedelta, timezone
+
 import pytest
 from starlette.testclient import TestClient
 from PIL import Image
 
-# adjust if your app factory is elsewhere:
 from app import app
 from db import SessionLocal
 from models import PredictionSession, DetectionObject
 from infra import purge_old_uploads_db
+import infra  # import module so we can monkeypatch internals
+
+
+# ---------- fixtures ---------------------------------------------------------
 
 
 @pytest.fixture(autouse=True)
 def _truncate_tables():
     # wipe rows so UIDs won't collide across runs
     with SessionLocal() as db:
-        # delete children first if there are FKs
         db.query(DetectionObject).delete()
         db.query(PredictionSession).delete()
         db.commit()
@@ -37,12 +43,24 @@ def _auth():
     return {"auth": ("alice", "pw")}
 
 
-# ---------- Rate limit headers + 30 rps limit ----------
+def _set_fake_time(monkeypatch, initial: float):
+    """
+    Patch infra.time.time() to return a mutable 'current[0]'.
+    Advance time in tests via: t[0] = new_value
+    """
+    current = [initial]
+    monkeypatch.setattr(infra.time, "time", lambda: current[0], raising=True)
+    return current
+
+
+# ---------- existing tests (kept) --------------------------------------------
+
+
 def test_rate_limit_headers_and_429_on_burst():
     # hit a cheap endpoint; if /health doesn't exist, use any GET you have
     last = None
-    for i in range(31):
-        last = client.get("/health")  # change to an existing GET if needed
+    for _ in range(31):
+        last = client.get("/health")
         assert "X-RateLimit-Limit" in last.headers
         assert "X-RateLimit-Remaining" in last.headers
         assert "X-RateLimit-Reset" in last.headers
@@ -51,7 +69,6 @@ def test_rate_limit_headers_and_429_on_burst():
     assert last.status_code in (200, 429)
 
 
-# ---------- 10 uploads/min per user/IP ----------
 def test_upload_quota_10_per_min(monkeypatch, tmp_path):
     # direct uploads to temp dirs to avoid polluting repo
     import services.predict_service as ps
@@ -89,13 +106,10 @@ def test_upload_quota_10_per_min(monkeypatch, tmp_path):
     for i in range(11):
         files = {"file": (f"x{i}.png", _png_bytes(), "image/png")}
         last = client.post("/predict", files=files, **_auth())
-    assert last.status_code in (
-        200,
-        429,
-    )  # should flip to 429 by the 11th in one minute
+    # should flip to 429 by the 11th in one minute
+    assert last.status_code in (200, 429)
 
 
-# ---------- Monthly DB quota (e.g., 100/month) ----------
 def test_monthly_quota_blocks_101st(monkeypatch, tmp_path):
     # Seed DB with 100 sessions for 'alice' in current month
     now = datetime.now(timezone.utc)
@@ -150,7 +164,6 @@ def test_monthly_quota_blocks_101st(monkeypatch, tmp_path):
     assert r.status_code == 429
 
 
-# ---------- 90-day purge (DB-driven) ----------
 def test_purge_old_uploads_db_deletes_files(tmp_path):
     uploads = tmp_path / "uploads"
     (uploads / "original").mkdir(parents=True)
@@ -191,3 +204,176 @@ def test_purge_old_uploads_db_deletes_files(tmp_path):
     assert removed == 2
     assert not old_orig.exists() and not old_pred.exists()
     assert new_orig.exists() and new_pred.exists()
+
+
+# ---------- NEW tests to cover missed lines in infra.py ----------------------
+
+
+def test_rate_limit_deque_cleanup_req(monkeypatch):
+    """Covers line 35: q.popleft() in the 1s window cleanup."""
+    t = _set_fake_time(monkeypatch, 1000.0)
+    with TestClient(app) as local:
+        r1 = local.get("/health")
+        assert r1.status_code in (200, 429)
+        # advance time by >1s so the cleanup loop pops the old timestamp
+        t[0] = 1002.0
+        r2 = local.get("/health")
+        assert r2.status_code in (200, 429)
+
+
+def test_upload_deque_cleanup(monkeypatch):
+    """Covers line 56: up.popleft() in the 60s upload window cleanup."""
+    t = _set_fake_time(monkeypatch, 2000.0)
+    with TestClient(app) as local:
+        files = {"file": ("x.png", io.BytesIO(b"not-a-real-image"), "image/png")}
+        r1 = local.post("/predict", files=files)
+        assert r1.status_code in (200, 415, 429)
+        t[0] = 2065.0  # > 60s later
+        r2 = local.post("/predict", files=files)
+        assert r2.status_code in (200, 415, 429)
+
+
+def test_prediction_cache_hit_and_expire(monkeypatch):
+    """Covers lines 82-83, 86-93, 96."""
+    t = _set_fake_time(monkeypatch, 3000.0)
+    c = infra.PredictionCache(ttl=1)
+    c.set("uid", {"ok": True})
+    assert c.get("uid") == {"ok": True}  # within ttl
+    # expire it
+    t[0] = 3002.0
+    assert c.get("uid") is None
+
+
+def test__as_int_exception_branch():
+    """Covers lines 103-104: exception -> 0."""
+
+    class NotInt:
+        pass
+
+    assert infra._as_int(NotInt()) == 0
+
+
+def test_enforce_db_quota_monthly_and_daily_raises():
+    """Covers line 135 (monthly raise) and 140-150 (24h raise)."""
+    with SessionLocal() as db:
+        # seed 3 rows in this month for user 'alice'
+        now = datetime.utcnow()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        for i in range(3):
+            db.add(
+                PredictionSession(
+                    uid=f"m{i}",
+                    timestamp=month_start + timedelta(minutes=i),
+                    original_image="",
+                    predicted_image="",
+                    username="alice",
+                )
+            )
+        db.commit()
+
+        # monthly limit = 3 -> should raise
+        with pytest.raises(infra.HTTPException) as ex1:
+            infra.enforce_db_quota(db, "alice", monthly_limit=3)
+        assert ex1.value.status_code == 429
+
+        # seed 2 rows in last 24h for user 'bob'
+        for i in range(2):
+            db.add(
+                PredictionSession(
+                    uid=f"d{i}",
+                    timestamp=datetime.utcnow() - timedelta(hours=1, minutes=i),
+                    original_image="",
+                    predicted_image="",
+                    username="bob",
+                )
+            )
+        db.commit()
+
+        # 24h limit = 2 -> should raise
+        with pytest.raises(infra.HTTPException) as ex2:
+            infra.enforce_db_quota(db, "bob", last_24h_limit=2)
+        assert ex2.value.status_code == 429
+
+
+def test_purge_old_uploads_db_handles_oserror(monkeypatch, tmp_path):
+    """Covers lines 189-190: os.remove raising OSError is swallowed."""
+    uploads = tmp_path / "uploads"
+    (uploads / "original").mkdir(parents=True)
+    (uploads / "predicted").mkdir(parents=True)
+
+    old1 = uploads / "original" / "will_fail.png"
+    old2 = uploads / "predicted" / "will_pass.png"
+    for p in (old1, old2):
+        p.write_bytes(b"x")
+
+    cutoff = datetime.utcnow() - timedelta(days=91)
+    with SessionLocal() as db:
+        db.add(
+            PredictionSession(
+                uid="u1",
+                timestamp=cutoff,
+                original_image=str(old1),
+                predicted_image=str(old2),
+                username=None,
+            )
+        )
+        db.commit()
+
+    real_remove = os.remove
+
+    def fake_remove(path):
+        if "will_fail.png" in path:
+            raise OSError("simulated failure")
+        return real_remove(path)
+
+    monkeypatch.setattr(infra.os, "remove", fake_remove, raising=True)
+
+    removed = infra.purge_old_uploads_db(upload_root=str(uploads), max_age_days=90)
+    # one succeeded, one failed (swallowed)
+    assert removed == 1
+    assert not old2.exists() and old1.exists()
+
+
+def test_schedule_daily_cleanup_invokes_once(monkeypatch, tmp_path):
+    """Covers lines 197-209 by running startup; task sleeps then cancels."""
+    from fastapi import FastAPI
+
+    calls = {"n": 0}
+
+    async def fake_sleep(_):
+        # break the loop after the first purge call
+        raise asyncio.CancelledError()
+
+    def fake_purge(**kwargs):
+        calls["n"] += 1
+
+    monkeypatch.setattr(infra, "purge_old_uploads_db", fake_purge, raising=True)
+    monkeypatch.setattr(infra.asyncio, "sleep", fake_sleep, raising=True)
+
+    small_app = FastAPI()
+    infra.schedule_daily_cleanup(small_app, base_dir=str(tmp_path), max_age_days=90)
+
+    # Starting the app should trigger one purge via the background task
+    with TestClient(small_app):
+        pass
+
+    assert calls["n"] >= 1
+
+
+def test_purge_old_uploads_filesystem(tmp_path):
+    """Covers lines 214-225 entirely (mtime-based fallback)."""
+    (tmp_path / "a").mkdir()
+    oldf = tmp_path / "a" / "old.txt"
+    newf = tmp_path / "a" / "new.txt"
+    oldf.write_text("x")
+    newf.write_text("y")
+
+    # set mtime so oldf < cutoff, newf >= cutoff
+    old_secs = infra.time.time() - 95 * 24 * 3600
+    new_secs = infra.time.time()
+    os.utime(oldf, (old_secs, old_secs))
+    os.utime(newf, (new_secs, new_secs))
+
+    removed = infra.purge_old_uploads(str(tmp_path), max_age_days=90)
+    assert removed == 1
+    assert not oldf.exists() and newf.exists()
