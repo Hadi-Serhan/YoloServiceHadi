@@ -3,6 +3,7 @@ from unittest.mock import patch, Mock
 from fastapi.testclient import TestClient
 from app import app
 
+
 class TestStatsEndpoint(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
@@ -39,5 +40,7 @@ class TestStatsEndpoint(unittest.TestCase):
         stats = response.json()
 
         self.assertEqual(stats["total_predictions"], 1)
-        self.assertAlmostEqual(stats["average_confidence_score"], (0.9 + 0.8 + 1.0) / 3, places=4)
+        self.assertAlmostEqual(
+            stats["average_confidence_score"], (0.9 + 0.8 + 1.0) / 3, places=4
+        )
         self.assertEqual(stats["most_common_labels"], {"person": 2, "dog": 1})

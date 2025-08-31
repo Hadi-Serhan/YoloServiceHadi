@@ -4,7 +4,10 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from queries import get_prediction_image_path, user_owns_image
 
-def get_image_path_and_validate(image_type: str, filename: str, username: str, db: Session) -> str:
+
+def get_image_path_and_validate(
+    image_type: str, filename: str, username: str, db: Session
+) -> str:
     if image_type not in ["original", "predicted"]:
         raise HTTPException(status_code=400, detail="Invalid image type")
 
@@ -22,7 +25,9 @@ def get_image_path_and_validate(image_type: str, filename: str, username: str, d
     return path
 
 
-def get_prediction_image_service(uid: str, username: str, request: Request, db: Session):
+def get_prediction_image_service(
+    uid: str, username: str, request: Request, db: Session
+):
     accept = request.headers.get("accept", "")
 
     image_path = get_prediction_image_path(db, uid, username)
@@ -37,4 +42,6 @@ def get_prediction_image_service(uid: str, username: str, request: Request, db: 
     elif "image/jpeg" in accept or "image/jpg" in accept:
         return FileResponse(image_path, media_type="image/jpeg")
     else:
-        raise HTTPException(status_code=406, detail="Client does not accept an image format")
+        raise HTTPException(
+            status_code=406, detail="Client does not accept an image format"
+        )

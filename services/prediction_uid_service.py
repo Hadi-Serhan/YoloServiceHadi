@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from queries import query_prediction_by_uid
 
+
 def get_prediction_by_uid_service(uid: str, username: str, db: Session):
     prediction = query_prediction_by_uid(db, uid)
 
@@ -15,5 +16,5 @@ def get_prediction_by_uid_service(uid: str, username: str, db: Session):
         "uid": prediction.uid,
         "timestamp": prediction.timestamp,
         "original_image": prediction.original_image,
-        "predicted_image": prediction.predicted_image
+        "predicted_image": prediction.predicted_image,
     }

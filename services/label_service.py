@@ -6,6 +6,7 @@ from ultralytics import YOLO
 
 model = YOLO("yolov8n.pt")
 
+
 def get_predictions_by_label_service(label: str, username: str, db: Session):
     if label not in model.names.values():
         raise HTTPException(status_code=404, detail="Label not supported")

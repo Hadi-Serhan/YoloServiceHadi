@@ -7,11 +7,12 @@ from db import get_db
 
 router = APIRouter()
 
+
 @router.post("/predict")
 def predict(
     file: UploadFile = File(...),
     credentials: Optional[HTTPBasicCredentials] = Depends(HTTPBasic(auto_error=False)),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     username = credentials.username if credentials else None
     password = credentials.password if credentials else None

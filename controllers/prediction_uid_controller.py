@@ -6,6 +6,11 @@ from auth import get_current_username
 
 router = APIRouter()
 
+
 @router.get("/prediction/{uid}")
-def get_prediction(uid: str, db: Session = Depends(get_db), username: str = Depends(get_current_username)):
+def get_prediction(
+    uid: str,
+    db: Session = Depends(get_db),
+    username: str = Depends(get_current_username),
+):
     return get_prediction_by_uid_service(uid, username, db)

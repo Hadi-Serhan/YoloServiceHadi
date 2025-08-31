@@ -8,9 +8,9 @@ import secrets
 
 security = HTTPBasic()
 
+
 def get_current_username(
-    credentials: HTTPBasicCredentials = Depends(security),
-    db: Session = Depends(get_db)
+    credentials: HTTPBasicCredentials = Depends(security), db: Session = Depends(get_db)
 ):
     user = db.query(User).filter_by(username=credentials.username).first()
     if user is None or not secrets.compare_digest(user.password, credentials.password):

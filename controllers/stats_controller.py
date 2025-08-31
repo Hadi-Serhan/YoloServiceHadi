@@ -6,6 +6,9 @@ from services.stats_service import get_stats_service
 
 router = APIRouter()
 
+
 @router.get("/stats")
-def get_stats(username: str = Depends(get_current_username), db: Session = Depends(get_db)):
+def get_stats(
+    username: str = Depends(get_current_username), db: Session = Depends(get_db)
+):
     return get_stats_service(username, db)

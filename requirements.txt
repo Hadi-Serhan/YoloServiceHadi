@@ -12,8 +12,6 @@ pytest==7.4.0
 pytest-cov==4.1.0
 pytest-html==3.2.0
 sqlalchemy
-psycopg2-binary
 python-dotenv
-dotenv
 psycopg[binary]
 allure-pytest

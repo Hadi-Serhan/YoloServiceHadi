@@ -30,7 +30,12 @@ class TestDeletePredictionByUID(unittest.TestCase):
     @patch("services.delete_service.os.remove")
     @patch("services.delete_service.os.path.exists", return_value=True)
     def test_delete_existing_prediction(
-        self, mock_exists, mock_remove, mock_delete_session, mock_delete_objects, mock_get_prediction
+        self,
+        mock_exists,
+        mock_remove,
+        mock_delete_session,
+        mock_delete_objects,
+        mock_get_prediction,
     ):
         mock_get_prediction.return_value = FakePrediction(
             uid=self.uid,
@@ -39,7 +44,9 @@ class TestDeletePredictionByUID(unittest.TestCase):
             username=self.username,
         )
 
-        response = self.client.delete(f"/prediction/{self.uid}", auth=(self.username, self.password))
+        response = self.client.delete(
+            f"/prediction/{self.uid}", auth=(self.username, self.password)
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("deleted successfully", response.json()["detail"])
@@ -50,7 +57,9 @@ class TestDeletePredictionByUID(unittest.TestCase):
 
     @patch("services.delete_service.get_prediction_by_uid_and_user", return_value=None)
     def test_delete_nonexistent_prediction(self, mock_get_prediction):
-        response = self.client.delete(f"/prediction/does-not-exist", auth=(self.username, self.password))
+        response = self.client.delete(
+            "/prediction/does-not-exist", auth=(self.username, self.password)
+        )
         self.assertEqual(response.status_code, 404)
         self.assertIn("Prediction not found", response.json()["detail"])
 
@@ -60,7 +69,12 @@ class TestDeletePredictionByUID(unittest.TestCase):
     @patch("services.delete_service.os.remove")
     @patch("services.delete_service.os.path.exists", return_value=True)
     def test_delete_when_file_remove_raises_exception(
-        self, mock_exists, mock_remove, mock_delete_session, mock_delete_objects, mock_get_prediction
+        self,
+        mock_exists,
+        mock_remove,
+        mock_delete_session,
+        mock_delete_objects,
+        mock_get_prediction,
     ):
         mock_get_prediction.return_value = FakePrediction(
             uid=self.uid,
@@ -70,6 +84,8 @@ class TestDeletePredictionByUID(unittest.TestCase):
         )
         mock_remove.side_effect = PermissionError("file delete failed")
 
-        response = self.client.delete(f"/prediction/{self.uid}", auth=(self.username, self.password))
+        response = self.client.delete(
+            f"/prediction/{self.uid}", auth=(self.username, self.password)
+        )
         self.assertEqual(response.status_code, 200)
         self.assertIn("deleted successfully", response.json()["detail"])

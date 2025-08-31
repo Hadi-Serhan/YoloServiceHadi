@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 from queries import (
     get_prediction_by_uid_and_user,
     delete_detection_objects_by_uid,
-    delete_prediction_session
+    delete_prediction_session,
 )
+
 
 def delete_prediction_service(uid: str, username: str, db: Session):
     prediction = get_prediction_by_uid_and_user(db, uid, username)

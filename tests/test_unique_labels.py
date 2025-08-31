@@ -3,6 +3,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 from app import app
 
+
 class TestUniqueLabels(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
@@ -33,10 +34,12 @@ class TestUniqueLabels(unittest.TestCase):
         mock_model.names.values.return_value = {"dog", "cat", "elephant"}
         mock_get_preds.return_value = [
             ("uid123", "2025-07-31T12:00:00"),
-            ("uid456", "2025-07-30T11:00:00")
+            ("uid456", "2025-07-30T11:00:00"),
         ]
 
-        response = self.client.get("/predictions/label/dog", auth=(self.username, self.password))
+        response = self.client.get(
+            "/predictions/label/dog", auth=(self.username, self.password)
+        )
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(any("uid123" in d["uid"] for d in data))
@@ -45,6 +48,8 @@ class TestUniqueLabels(unittest.TestCase):
     def test_invalid_label_gives_404(self, mock_model):
         mock_model.names.values.return_value = {"cat", "dog", "car"}
 
-        response = self.client.get("/predictions/label/doesntexist", auth=(self.username, self.password))
+        response = self.client.get(
+            "/predictions/label/doesntexist", auth=(self.username, self.password)
+        )
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Label not supported")

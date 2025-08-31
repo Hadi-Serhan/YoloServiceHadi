@@ -3,6 +3,7 @@ import pytest
 from db import Base, engine, SessionLocal
 from models import User
 
+
 @pytest.fixture(scope="session", autouse=True)
 def create_test_tables():
     """
@@ -12,6 +13,7 @@ def create_test_tables():
 
 
 # Create required test users before tests
+
 
 @pytest.fixture(scope="session", autouse=True)
 def create_test_users():
@@ -30,6 +32,7 @@ def create_test_users():
 
 
 # Ensure test_success.jpg exists for image tests
+
 
 @pytest.fixture(autouse=True)
 def create_test_success_image():

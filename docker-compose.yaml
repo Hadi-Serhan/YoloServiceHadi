@@ -1,6 +1,6 @@
 services:
   api:
-    image: ${YOLO_IMAGE}                        
+    image: ${YOLO_IMAGE}
     pull_policy: always
     ports:
       - "${YOLO_PORT:-8080}:8080"
@@ -9,7 +9,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/predictions
     volumes:
-      - ./uploads:/app/uploads                   
+      - ./uploads:/app/uploads
     depends_on:
       - db            # simple start-order dependency
     restart: unless-stopped
@@ -31,12 +31,12 @@ services:
     restart: unless-stopped
 
   ollama-ui:
-    image: ${OLLAMA_UI_IMAGE}                   
+    image: ${OLLAMA_UI_IMAGE}
     pull_policy: always
     ports:
       - "${OLLAMA_UI_PORT:-3000}:3000"
     environment:
-      YOLO_SERVICE: http://api:8080            
+      YOLO_SERVICE: http://api:8080
     depends_on:
       - api          # no health condition
     restart: unless-stopped

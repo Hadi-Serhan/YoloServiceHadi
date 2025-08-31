@@ -1,0 +1,15 @@
+repos:
+  # Ruff: lint (PEP8 etc.) + format
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]         # auto-fix easy stuff
+      - id: ruff-format       # formatter (Black-compatible)
+
+  # Tiny hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

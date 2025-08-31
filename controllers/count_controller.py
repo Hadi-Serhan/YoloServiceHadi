@@ -7,6 +7,9 @@ from auth import get_current_username
 
 router = APIRouter()
 
+
 @router.get("/predictions/count")
-def get_prediction_count(username: str = Depends(get_current_username), db: Session = Depends(get_db)):
+def get_prediction_count(
+    username: str = Depends(get_current_username), db: Session = Depends(get_db)
+):
     return get_prediction_count_service(username, db)

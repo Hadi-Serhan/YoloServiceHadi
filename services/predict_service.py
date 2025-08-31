@@ -5,10 +5,16 @@ import time
 from PIL import Image
 from ultralytics import YOLO
 import secrets
-from services.validators import validate_mime_and_ext, sniff_image_or_415, sanitize_filename
+from services.validators import (
+    validate_mime_and_ext,
+    sniff_image_or_415,
+    sanitize_filename,
+)
+from infra import enforce_db_quota
 
 from queries import (
-    get_user, create_user,
+    get_user,
+    create_user,
     save_prediction_session,
     save_detection_object,
 )
@@ -18,12 +24,13 @@ PREDICTED_DIR = "uploads/predicted"
 model = YOLO("yolov8n.pt")  # Load model once
 
 MAX_BYTES = 10 * 1024 * 1024  # 10 MB
-CHUNK = 1 * 1024 * 1024       # 1 MB
+CHUNK = 1 * 1024 * 1024  # 1 MB
 
 
 def process_prediction(file, db, username=None, password=None):
     # --- Auth as you had it ---
     if username:
+        enforce_db_quota(db, username, monthly_limit=100)  # e.g. 100/month
         user = get_user(db, username)
         if user is None:
             create_user(db, username, password)
@@ -65,6 +72,7 @@ def process_prediction(file, db, username=None, password=None):
             pass
         # Raise appropriate HTTP-style error up the stack
         from fastapi import HTTPException
+
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 
     # --- Sniff the saved file to ensure it's truly an image ---
@@ -79,6 +87,7 @@ def process_prediction(file, db, username=None, password=None):
         except OSError:
             pass
         from fastapi import HTTPException
+
         raise HTTPException(status_code=415, detail="Invalid or corrupted image")
 
     # --- Inference as you had it ---
@@ -104,5 +113,5 @@ def process_prediction(file, db, username=None, password=None):
         "prediction_uid": uid,
         "detection_count": len(results[0].boxes),
         "labels": labels,
-        "time_took": round(time.time() - start_time, 2)
+        "time_took": round(time.time() - start_time, 2),
     }
