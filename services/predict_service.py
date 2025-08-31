@@ -1,10 +1,11 @@
+# services/predict_service.py
 import os
-import shutil
 import uuid
 import time
 from PIL import Image
 from ultralytics import YOLO
 import secrets
+from services.validators import validate_mime_and_ext, sniff_image_or_415, sanitize_filename
 
 from queries import (
     get_user, create_user,
@@ -16,7 +17,12 @@ UPLOAD_DIR = "uploads/original"
 PREDICTED_DIR = "uploads/predicted"
 model = YOLO("yolov8n.pt")  # Load model once
 
+MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+CHUNK = 1 * 1024 * 1024       # 1 MB
+
+
 def process_prediction(file, db, username=None, password=None):
+    # --- Auth as you had it ---
     if username:
         user = get_user(db, username)
         if user is None:
@@ -24,22 +30,67 @@ def process_prediction(file, db, username=None, password=None):
         elif not secrets.compare_digest(user.password, password):
             raise ValueError("Invalid credentials")
 
-    ext = os.path.splitext(file.filename)[1]
+    # --- Ensure directories exist ---
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(PREDICTED_DIR, exist_ok=True)
+
+    # --- Validate MIME + extension (JPEG/PNG) ---
+    validate_mime_and_ext(file)  # uses file.content_type and file.filename
+
+    # --- Safe/normalized filename & extension ---
+    safe_name = sanitize_filename(file.filename)
+    _, ext = os.path.splitext(safe_name)
     uid = str(uuid.uuid4())
-    original_path = os.path.join(UPLOAD_DIR, uid + ext)
-    predicted_path = os.path.join(PREDICTED_DIR, uid + ext)
+    original_path = os.path.join(UPLOAD_DIR, uid + ext.lower())
+    predicted_path = os.path.join(PREDICTED_DIR, uid + ext.lower())
 
-    with open(original_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    # --- Stream upload to disk with a 10 MB cap ---
+    total = 0
+    try:
+        with open(original_path, "wb") as out:
+            while True:
+                chunk = file.file.read(CHUNK)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_BYTES:
+                    raise ValueError("File too large (max 10MB)")
+                out.write(chunk)
+    except Exception:
+        # Cleanup partial file on any failure (including size)
+        try:
+            if os.path.exists(original_path):
+                os.remove(original_path)
+        except OSError:
+            pass
+        # Raise appropriate HTTP-style error up the stack
+        from fastapi import HTTPException
+        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 
+    # --- Sniff the saved file to ensure it's truly an image ---
+    # (prevents spoofed headers / extensions)
+    try:
+        with open(original_path, "rb") as fh:
+            sniff_image_or_415(fh.read(64 * 1024))
+    except Exception:
+        # Invalid/corrupted image -> cleanup and fail
+        try:
+            os.remove(original_path)
+        except OSError:
+            pass
+        from fastapi import HTTPException
+        raise HTTPException(status_code=415, detail="Invalid or corrupted image")
+
+    # --- Inference as you had it ---
     start_time = time.time()
-
     results = model(original_path, device="cpu")
     annotated_frame = results[0].plot()
     Image.fromarray(annotated_frame).save(predicted_path)
 
+    # --- Persist session ---
     save_prediction_session(db, uid, original_path, predicted_path, username)
 
+    # --- Persist detections & build label list ---
     labels = []
     for box in results[0].boxes:
         label_idx = int(box.cls[0].item())
