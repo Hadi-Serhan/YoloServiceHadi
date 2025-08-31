@@ -63,9 +63,10 @@ jobs:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: |
           pytest \
-            --cov=app \
+            --cov=. \
             --cov-report=term-missing \
             --cov-report=xml \
+            --cov-fail-under=90 \
             --junitxml=junit.xml \
             --alluredir=allure-results
       - name: Upload coverage to Codecov
