@@ -35,8 +35,8 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-      - run: python -m pip install --upgrade pip pip-audit --ignore-vuln PYSEC-2022-42969
-      - run: pip-audit --strict -r requirements.txt
+      - run: python -m pip install --upgrade pip pip-audit
+      - run: pip-audit --strict -r requirements.txt --ignore-vuln PYSEC-2022-42969
 
   test:
     needs: [lint, audit]
