@@ -21,7 +21,7 @@ jobs:
         TAG="${{ github.sha }}-$(date +%Y%m%d-%H%M%S)"
 
         # Build the image with a simple tag
-        docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/yolo:$TAG .
+        docker build -t ${{ secrets.DOCKER_NAMESPACE }}/yolo:$TAG .
 
         # Push the image to DockerHub
-        docker push ${{ secrets.DOCKERHUB_USERNAME }}/yolo:$TAG
+        docker push ${{ secrets.DOCKER_NAMESPACE}}/yolo:$TAG
