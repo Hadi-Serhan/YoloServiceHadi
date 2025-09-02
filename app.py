@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
 
     Base.metadata.create_all(bind=engine)
 
-    # kick off daily cleanup loop (90-day purge; DB-driven)
+    # kick off daily cleanup loop
     async def _cleanup_loop():
         while True:
             try:

@@ -28,7 +28,6 @@ CHUNK = 1 * 1024 * 1024  # 1 MB
 
 
 def process_prediction(file, db, username=None, password=None):
-    # --- Auth as you had it ---
     if username:
         enforce_db_quota(db, username, monthly_limit=100)  # e.g. 100/month
         user = get_user(db, username)
@@ -76,7 +75,6 @@ def process_prediction(file, db, username=None, password=None):
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 
     # --- Sniff the saved file to ensure it's truly an image ---
-    # (prevents spoofed headers / extensions)
     try:
         with open(original_path, "rb") as fh:
             sniff_image_or_415(fh.read(64 * 1024))
@@ -90,7 +88,6 @@ def process_prediction(file, db, username=None, password=None):
 
         raise HTTPException(status_code=415, detail="Invalid or corrupted image")
 
-    # --- Inference as you had it ---
     start_time = time.time()
     results = model(original_path, device="cpu")
     annotated_frame = results[0].plot()

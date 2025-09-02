@@ -17,8 +17,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.uploads_per_min = int(
             os.getenv("UPLOADS_PER_MIN", str(uploads_per_min or 10))
         )
-        self._req_log = defaultdict(deque)  # key -> deque[timestamps] (1s window)
-        self._up_log = defaultdict(deque)  # key -> deque[timestamps] (60s window)
+        self._req_log = defaultdict(deque)
+        self._up_log = defaultdict(deque)
 
     def _key(self, request: Request) -> str:
         # key by Authorization header if present; otherwise by client IP
@@ -76,11 +76,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return resp
 
 
-# ---------- 24h cache helper (optional, use in /prediction/{uid}) ----------
+# ---------- 24h cache helper  ----------
 class PredictionCache:
     def __init__(self, ttl=24 * 3600):
         self.ttl = ttl
-        self._data = {}  # uid -> {"t": ts, "payload": dict}
+        self._data = {}
 
     def get(self, uid: str):
         now = time.time()
@@ -161,7 +161,6 @@ def purge_old_uploads_db(upload_root: str = "uploads", max_age_days: int = 90) -
         PredictionSession,
     )  # uid, timestamp, original_image, predicted_image
 
-    # NOTE: keeping naive UTC to match your model columns
     cutoff = datetime.utcnow() - timedelta(days=max_age_days)
     removed = 0
 
@@ -199,7 +198,6 @@ def schedule_daily_cleanup(app, base_dir="uploads", max_age_days=90):
         async def _loop():
             while True:
                 try:
-                    # DB-driven is authoritative (files older than the session age)
                     purge_old_uploads_db(
                         upload_root=base_dir, max_age_days=max_age_days
                     )
@@ -209,7 +207,7 @@ def schedule_daily_cleanup(app, base_dir="uploads", max_age_days=90):
         asyncio.create_task(_loop())
 
 
-# (optional) fallback: purely filesystem mtime sweep
+# fallback: purely filesystem mtime sweep
 def purge_old_uploads(base_dir: str, max_age_days: int = 90) -> int:
     removed = 0
     cutoff = time.time() - max_age_days * 24 * 3600

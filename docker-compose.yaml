@@ -36,7 +36,7 @@ services:
     ports:
       - "${OLLAMA_UI_PORT:-3000}:3000"
     environment:
-      YOLO_SERVICE: http://api:8080
+      YOLO_SERVICE: api:8080
     depends_on:
       - api          # no health condition
     restart: unless-stopped
