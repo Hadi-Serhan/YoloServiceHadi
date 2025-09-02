@@ -26,7 +26,7 @@ jobs:
           cache: 'pip'
       - run: python -m pip install --upgrade pip pre-commit
       - run: pre-commit run --all-files
-  # Ensures code formatting
+  # check code vulnerabilities
   audit:
     runs-on: ubuntu-latest
     steps:
@@ -37,7 +37,7 @@ jobs:
           cache: 'pip'
       - run: python -m pip install --upgrade pip pip-audit
       - run: pip-audit --strict -r requirements.txt --ignore-vuln PYSEC-2022-42969
-
+  # Lint reformats the code
   test:
     needs: [lint, audit]
     runs-on: ubuntu-latest
