@@ -10,22 +10,23 @@ router = APIRouter()
 
 @router.post("/predict")
 def predict(
-    chat_id: str = Query(..., description="Logical folder for user/session in S3"),
-    img: Optional[str] = Query(
+    chat_id: Optional[str] = Query(
         None,
-        description="S3 key or bare filename (e.g., 'dog.jpg' or '123/original/dog.jpg')",
+        description="Optional logical folder for S3; defaults to username or 'default'",
     ),
+    img: Optional[str] = Query(None, description="Optional: S3 key or bare filename"),
     file: Optional[UploadFile] = File(None),
     credentials: Optional[HTTPBasicCredentials] = Depends(HTTPBasic(auto_error=False)),
     db: Session = Depends(get_db),
 ):
     username = credentials.username if credentials else None
     password = credentials.password if credentials else None
-
+    # Back-compat default for tests: if no chat_id provided, use username or 'default'
+    resolved_chat_id = chat_id or (username or "default")
     try:
         return process_prediction(
             db=db,
-            chat_id=chat_id,
+            chat_id=resolved_chat_id,
             file=file,
             img=img,
             username=username,

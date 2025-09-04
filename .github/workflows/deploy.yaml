@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - feature/download_images_from_s3
   workflow_dispatch:
 
 jobs:
