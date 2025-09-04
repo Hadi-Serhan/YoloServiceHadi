@@ -14,6 +14,17 @@ from services.validators import (
     sniff_image_or_415,
     sanitize_filename,
 )
+
+# use S3 helpers
+
+from services.s3_utils import (
+    save_original_from_bytes,
+    save_predicted_from_file,
+    download_to_path,
+    build_original_key,
+    exists,
+    guess_content_type,
+)
 from infra import enforce_db_quota
 from queries import (
     get_user,
@@ -22,15 +33,6 @@ from queries import (
     save_detection_object,
 )
 
-# NEW: use S3 helpers
-from s3_utils import (
-    save_original_from_bytes,
-    save_predicted_from_file,
-    download_to_path,
-    build_original_key,
-    exists,
-    guess_content_type,
-)
 
 model = YOLO("yolov8n.pt")  # Load once
 
