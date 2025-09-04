@@ -11,78 +11,93 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # NEW: print runner egress IP so you can allow it on SG (TCP 22)
-    - name: Show runner public IP
-      run: curl -s https://api.ipify.org && echo
+      # Optional: helps you open your Security Group if SSH is blocked
+      - name: Show runner public IP
+        run: curl -s https://api.ipify.org && echo
 
-    - name: Deploy to server
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.HOST }}     # must be PUBLIC IP/DNS, no http://
-        username: ubuntu
-        key: ${{ secrets.SSH_KEY }}
-        port: 22
-        debug: true
-        script_stop: true
-        timeout: 30s                  # short connect-timeout -> fail fast if SG blocks
-        command_timeout: 10m          # still gives pip/apt time once connected
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}          # PUBLIC IP/DNS only (no http://)
+          username: ubuntu
+          key: ${{ secrets.SSH_KEY }}
+          port: 22
+          debug: true
+          script_stop: true
+          timeout: 30s
+          command_timeout: 10m
 
-        script: |
-          set -euxo pipefail  # fail fast, show where it stops
+          script: |
+            set -euxo pipefail
 
-          # Ensure sudo won't prompt (prevents hang)
-          sudo -n true || { echo "sudo requires a password (configure NOPASSWD)"; exit 1; }
+            # Ensure sudo won't prompt (must have NOPASSWD configured)
+            sudo -n true || { echo "sudo requires a password (configure NOPASSWD)"; exit 1; }
 
-          # Clone if missing
-          if [ ! -d "YoloServiceHadi" ]; then
-            echo "Cloning repository..."
-            git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git
-          fi
+            # Clone if missing
+            if [ ! -d "YoloServiceHadi" ]; then
+              echo "Cloning repository..."
+              git clone https://github.com/Hadi-Serhan/YoloServiceHadi.git
+            fi
 
-          cd YoloServiceHadi
+            cd YoloServiceHadi
 
-          # Reset to latest main
-          if [ -d ".git" ]; then
-            echo "Resetting to origin/main..."
-            git fetch origin
-            git reset --hard origin/main
-          fi
+            # Reset to latest main
+            if [ -d ".git" ]; then
+              echo "Resetting to origin/main..."
+              git fetch origin
+              git reset --hard origin/main
+            fi
 
-          # Ensure venv prerequisites (non-interactive apt with lock timeout)
-          echo "Installing python3-venv if missing..."
-          sudo DEBIAN_FRONTEND=noninteractive apt-get update -o DPkg::Lock::Timeout=60
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 python3-venv
+            # System packages first (avoid service failing due to missing libs)
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update -o DPkg::Lock::Timeout=60
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 \
+              python3-venv ffmpeg libsm6 libxext6
 
-          # (Re)create .venv if missing or broken
-          if [ ! -f ".venv/bin/activate" ]; then
-            echo "Creating virtual environment..."
-            rm -rf .venv
-            python3 -m venv .venv
-          fi
+            # (Re)create venv if needed
+            if [ ! -f ".venv/bin/activate" ]; then
+              echo "Creating virtual environment..."
+              rm -rf .venv
+              python3 -m venv .venv
+            fi
 
-          # Activate and install Python dependencies
-          # shellcheck disable=SC1091
-          source .venv/bin/activate
-          pip install --upgrade pip
-          pip install -r torch-requirements.txt
-          pip install -r requirements.txt
+            # Activate and install Python dependencies
+            # shellcheck disable=SC1091
+            source .venv/bin/activate
+            pip install --upgrade pip
+            pip install -r torch-requirements.txt
+            pip install -r requirements.txt
 
-          # Ensure system libraries are present (non-interactive)
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 ffmpeg libsm6 libxext6
+            # === Inject AWS env vars into systemd (from GitHub Secrets) ===
+            sudo mkdir -p /etc/systemd/system/yolo.service.d
+            sudo tee /etc/systemd/system/yolo.service.d/env.conf >/dev/null <<EOF
+            [Service]
+            Environment=AWS_REGION=${{ secrets.AWS_REGION }}
+            Environment=AWS_S3_BUCKET=${{ secrets.S3_BUCKET_NAME }}
+            EOF
 
-          # Restart systemd service
-          echo "Restarting the service..."
-          sudo systemctl daemon-reload
-          sudo systemctl restart yolo.service
+            # Pick up the new drop-in
+            sudo systemctl daemon-reload
+            sudo systemctl enable yolo.service || true
 
-          # Check service status
-          if systemctl is-active --quiet yolo.service; then
-            echo "Service restarted successfully."
-          else
-            echo "Service failed to start."
-            sudo journalctl -u yolo.service -n 50 --no-pager
-            exit 1
-          fi
+            # Show what environment systemd will pass to the service
+            echo "== yolo.service environment (systemd view) =="
+            sudo systemctl show yolo.service -p Environment || true
+
+            # Restart service
+            echo "Restarting yolo.service..."
+            sudo systemctl restart yolo.service
+
+            # Health check
+            if systemctl is-active --quiet yolo.service; then
+              echo "Service restarted successfully."
+            else
+              echo "Service failed to start."
+              sudo journalctl -u yolo.service -n 100 --no-pager || true
+              exit 1
+            fi
+
+            echo "== Recent logs =="
+            sudo journalctl -u yolo.service -n 50 --no-pager || true
