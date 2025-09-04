@@ -15,3 +15,4 @@ sqlalchemy
 python-dotenv
 psycopg[binary]
 allure-pytest
+boto3

@@ -8,10 +8,14 @@ services:
       - .env
     environment:
       - DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/predictions
+      - AWS_REGION=${AWS_REGION}
+      - AWS_DEFAULT_REGION=${AWS_REGION}     # boto3 also uses this
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET}
+
     volumes:
       - ./uploads:/app/uploads
     depends_on:
-      - db            # simple start-order dependency
+      - db
     restart: unless-stopped
 
   db:
@@ -38,7 +42,7 @@ services:
     environment:
       YOLO_SERVICE: api:8080
     depends_on:
-      - api          # no health condition
+      - api
     restart: unless-stopped
 
 volumes:
